@@ -17,16 +17,24 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.19.0"
-          channel: "stable"
+          channel: stable
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Create Flutter project scaffold
+        run: |
+          flutter create --platforms=android temp_app
+          rm -rf temp_app/lib
+          rm -f temp_app/pubspec.yaml
+          cp -r lib temp_app/
+          cp pubspec.yaml temp_app/
 
       - name: Build APK
-        run: flutter build apk --release
+        working-directory: temp_app
+        run: |
+          flutter pub get
+          flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: redtown-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: temp_app/build/app/outputs/flutter-apk/app-release.apk
