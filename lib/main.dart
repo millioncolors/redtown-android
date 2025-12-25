@@ -1,9 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:document_file_save_plus/document_file_save_plus.dart';
 
 void main() {
   runApp(const RedTownApp());
@@ -15,7 +14,6 @@ class RedTownApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'RedTown',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(),
       home: const HomeScreen(),
@@ -32,58 +30,62 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _controller = TextEditingController();
-  String _status = 'Enter subreddit and tap RIP ME';
+  String _status = 'Select folder, then RIP ME';
+  String? _folderUri;
 
-  Future<bool> _ensureAllFilesAccess() async {
-    if (await Permission.manageExternalStorage.isGranted) {
-      return true;
-    }
+  @override
+  void initState() {
+    super.initState();
+    _loadFolder();
+  }
 
-    final uri = Uri.parse(
-      'android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION'
-      '?package=com.redtown.app',
-    );
+  Future<void> _loadFolder() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _folderUri = prefs.getString('folder_uri');
+    });
+  }
 
-    await launchUrl(uri);
+  Future<void> _pickFolder() async {
+    final result = await FilePicker.platform.getDirectoryPath();
+    if (result == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('folder_uri', result);
 
     setState(() {
-      _status =
-          'Enable "All files access" for RedTown, then return and tap RIP ME again';
+      _folderUri = result;
+      _status = 'Folder selected';
     });
-
-    return false;
   }
 
   Future<void> _ripMe() async {
-    final input = _controller.text.trim();
-    if (input.isEmpty) {
-      setState(() => _status = 'Please enter a subreddit or username');
+    if (_folderUri == null) {
+      setState(() => _status = 'Please select folder first');
       return;
     }
 
-    final ok = await _ensureAllFilesAccess();
-    if (!ok) return;
+    final input = _controller.text.trim();
+    if (input.isEmpty) return;
 
-    final jobId = 'job_${DateTime.now().millisecondsSinceEpoch}';
+    final jobId = 'job_${DateTime.now().millisecondsSinceEpoch}.json';
 
     final job = {
       "job_id": jobId,
       "target": input,
-      "media": ["images", "videos", "gifs", "albums"],
-      "listing": ["new", "hot", "top", "rising", "controversial"],
-      "time_range": "all",
       "created_at": DateTime.now().toIso8601String(),
       "state": "queued"
     };
 
-    final dir = Directory('/storage/emulated/0/RedTown/jobs');
-    await dir.create(recursive: true);
-
-    final file = File('${dir.path}/$jobId.json');
-    await file.writeAsString(jsonEncode(job), flush: true);
+    await DocumentFileSavePlus.saveFile(
+      utf8.encode(jsonEncode(job)),
+      jobId,
+      "application/json",
+      _folderUri!,
+    );
 
     setState(() {
-      _status = 'Job created: $jobId';
+      _status = 'Job created';
       _controller.clear();
     });
   }
@@ -96,24 +98,25 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
+            ElevatedButton(
+              onPressed: _pickFolder,
+              child: const Text('Select RedTown Folder'),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _controller,
               decoration: const InputDecoration(
-                labelText: 'Subreddit or Username (e.g. r/pics)',
+                labelText: 'Subreddit (e.g. r/pics)',
                 border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _ripMe,
-                child: const Text('RIP ME', style: TextStyle(fontSize: 18)),
-              ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _ripMe,
+              child: const Text('RIP ME'),
             ),
             const SizedBox(height: 20),
-            Text(_status, textAlign: TextAlign.center),
+            Text(_status),
           ],
         ),
       ),
