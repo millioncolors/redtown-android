@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const RedTownApp());
@@ -31,18 +32,23 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _controller = TextEditingController();
-  String _status = 'Enter a subreddit and tap RIP ME';
+  String _status = 'Enter subreddit and tap RIP ME';
 
-  Future<bool> _ensureStoragePermission() async {
+  Future<bool> _ensureAllFilesAccess() async {
     if (await Permission.manageExternalStorage.isGranted) {
       return true;
     }
 
-    // Open system settings for All Files Access
-    await openAppSettings();
+    final uri = Uri.parse(
+      'android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION'
+      '?package=com.redtown.app',
+    );
+
+    await launchUrl(uri);
 
     setState(() {
-      _status = 'Enable "All files access" for RedTown, then return and tap RIP ME again';
+      _status =
+          'Enable "All files access" for RedTown, then return and tap RIP ME again';
     });
 
     return false;
@@ -55,8 +61,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final hasPermission = await _ensureStoragePermission();
-    if (!hasPermission) return;
+    final ok = await _ensureAllFilesAccess();
+    if (!ok) return;
 
     final jobId = 'job_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -103,17 +109,11 @@ class _HomeScreenState extends State<HomeScreen> {
               height: 50,
               child: ElevatedButton(
                 onPressed: _ripMe,
-                child: const Text(
-                  'RIP ME',
-                  style: TextStyle(fontSize: 18),
-                ),
+                child: const Text('RIP ME', style: TextStyle(fontSize: 18)),
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              _status,
-              textAlign: TextAlign.center,
-            ),
+            Text(_status, textAlign: TextAlign.center),
           ],
         ),
       ),
