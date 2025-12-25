@@ -52,19 +52,20 @@ def main():
             print(f"🆕 Processing job: {job_id}")
             write_status(job_id, "running")
 
-            log = open(os.path.join(LOGS, f"{job_id}.log"), "w")
             proc = subprocess.run(
                 ["python", SCRAPER, job["target"], job_id],
-                stdout=log,
-                stderr=log,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
-            log.close()
 
             stats_path = os.path.join(STATUS, f"{job_id}_stats.json")
+            stats = {}
 
-            if proc.returncode == 0 and os.path.exists(stats_path):
+            if os.path.exists(stats_path):
                 with open(stats_path) as f:
                     stats = json.load(f)
+
+            if proc.returncode == 0 and stats.get("files_downloaded", 0) > 0:
                 write_status(job_id, "completed", stats=stats)
                 print(f"✅ Job finished: {job_id} (completed)")
             else:
