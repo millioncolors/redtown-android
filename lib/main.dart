@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const RedTownApp());
@@ -30,7 +31,22 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _controller = TextEditingController();
-  String _status = '';
+  String _status = 'Enter a subreddit and tap RIP ME';
+
+  Future<bool> _ensureStoragePermission() async {
+    if (await Permission.manageExternalStorage.isGranted) {
+      return true;
+    }
+
+    // Open system settings for All Files Access
+    await openAppSettings();
+
+    setState(() {
+      _status = 'Enable "All files access" for RedTown, then return and tap RIP ME again';
+    });
+
+    return false;
+  }
 
   Future<void> _ripMe() async {
     final input = _controller.text.trim();
@@ -38,6 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _status = 'Please enter a subreddit or username');
       return;
     }
+
+    final hasPermission = await _ensureStoragePermission();
+    if (!hasPermission) return;
 
     final jobId = 'job_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -52,9 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
     };
 
     final dir = Directory('/storage/emulated/0/RedTown/jobs');
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
+    await dir.create(recursive: true);
 
     final file = File('${dir.path}/$jobId.json');
     await file.writeAsString(jsonEncode(job), flush: true);
@@ -76,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
             TextField(
               controller: _controller,
               decoration: const InputDecoration(
-                labelText: 'Subreddit or Username (e.g. r/pics, u/name)',
+                labelText: 'Subreddit or Username (e.g. r/pics)',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -95,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 20),
             Text(
               _status,
-              style: const TextStyle(color: Colors.greenAccent),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
