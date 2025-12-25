@@ -16,8 +16,8 @@ class RedTownApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
       title: 'RedTown',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(useMaterial3: true),
       home: const HomeScreen(),
     );
@@ -28,13 +28,15 @@ class JobInfo {
   final String jobId;
   final String target;
   final String state;
-  final Map<String, dynamic>? stats;
+  final Map<String, dynamic> stats;
+  final String? error;
 
   JobInfo({
     required this.jobId,
     required this.target,
     required this.state,
-    this.stats,
+    required this.stats,
+    this.error,
   });
 }
 
@@ -45,11 +47,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver {
   String? baseDir;
   final TextEditingController controller = TextEditingController();
   List<JobInfo> jobs = [];
-  Timer? refreshTimer;
+  Timer? poller;
 
   @override
   void initState() {
@@ -59,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    refreshTimer?.cancel();
+    poller?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -147,9 +150,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: ListTile(
             leading: Icon(Icons.circle, color: color, size: 12),
             title: Text(job.target),
-            subtitle: Text(job.state),
-            trailing: job.stats != null
-                ? Text("${job.stats!['files_downloaded']} files")
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(job.state),
+                if (job.state == "failed" && job.error != null)
+                  Text(
+                    job.error!,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+              ],
+            ),
+            trailing: job.stats.isNotEmpty
+                ? Text("${job.stats["files_downloaded"] ?? 0} files")
                 : null,
           ),
         );
@@ -158,11 +171,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> pickFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath();
-    if (result == null) return;
+    final dir = await FilePicker.platform.getDirectoryPath();
+    if (dir == null) return;
 
     setState(() {
-      baseDir = result;
+      baseDir = dir;
     });
 
     startPolling();
@@ -183,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     controller.clear();
 
-    refreshJobs(); // 🔴 THIS WAS MISSING
+    refreshJobs();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Job created: $jobId")),
@@ -191,9 +204,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void startPolling() {
-    refreshTimer?.cancel();
+    poller?.cancel();
     refreshJobs();
-    refreshTimer = Timer.periodic(
+    poller = Timer.periodic(
       const Duration(seconds: 2),
       (_) => refreshJobs(),
     );
@@ -205,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final jobsDir = Directory(baseDir!);
     final statusDir = Directory(p.join(baseDir!, "status"));
 
-    if (!await statusDir.exists()) return;
+    if (!await jobsDir.exists()) return;
 
     final jobFiles = jobsDir
         .listSync()
@@ -228,13 +241,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           jobId: jobId,
           target: target,
           state: statusData["state"],
-          stats: statusData["stats"],
+          stats: statusData["stats"] ?? {},
+          error: statusData["error"],
         ));
       } else {
         loaded.add(JobInfo(
           jobId: jobId,
           target: target,
           state: "queued",
+          stats: const {},
         ));
       }
     }
