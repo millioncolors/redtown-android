@@ -16,8 +16,8 @@ class RedTownApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'RedTown',
       debugShowCheckedModeBanner: false,
+      title: 'RedTown',
       theme: ThemeData.dark(useMaterial3: true),
       home: const HomeScreen(),
     );
@@ -45,16 +45,30 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? baseDir;
   final TextEditingController controller = TextEditingController();
   List<JobInfo> jobs = [];
   Timer? refreshTimer;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
     refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && baseDir != null) {
+      startPolling();
+    }
   }
 
   @override
@@ -68,9 +82,11 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             ElevatedButton(
               onPressed: pickFolder,
-              child: Text(baseDir == null
-                  ? "Choose RedTown Folder"
-                  : "Folder: ${p.basename(baseDir!)}"),
+              child: Text(
+                baseDir == null
+                    ? "Choose RedTown Folder"
+                    : "Folder: ${p.basename(baseDir!)}",
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -129,12 +145,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Card(
           child: ListTile(
+            leading: Icon(Icons.circle, color: color, size: 12),
             title: Text(job.target),
             subtitle: Text(job.state),
             trailing: job.stats != null
                 ? Text("${job.stats!['files_downloaded']} files")
                 : null,
-            leading: Icon(Icons.circle, color: color, size: 12),
           ),
         );
       },
@@ -166,6 +182,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }));
 
     controller.clear();
+
+    refreshJobs(); // 🔴 THIS WAS MISSING
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Job created: $jobId")),
+    );
   }
 
   void startPolling() {
@@ -183,9 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final jobsDir = Directory(baseDir!);
     final statusDir = Directory(p.join(baseDir!, "status"));
 
-    if (!await statusDir.exists()) {
-      return;
-    }
+    if (!await statusDir.exists()) return;
 
     final jobFiles = jobsDir
         .listSync()
