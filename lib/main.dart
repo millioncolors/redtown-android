@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:document_file_save_plus/document_file_save_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const RedTownApp());
@@ -31,7 +32,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _controller = TextEditingController();
   String _status = 'Select folder, then RIP ME';
-  String? _folderUri;
+  String? _folderPath;
 
   @override
   void initState() {
@@ -42,25 +43,25 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadFolder() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _folderUri = prefs.getString('folder_uri');
+      _folderPath = prefs.getString('folder_path');
     });
   }
 
   Future<void> _pickFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath();
-    if (result == null) return;
+    final path = await FilePicker.platform.getDirectoryPath();
+    if (path == null) return;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('folder_uri', result);
+    await prefs.setString('folder_path', path);
 
     setState(() {
-      _folderUri = result;
+      _folderPath = path;
       _status = 'Folder selected';
     });
   }
 
   Future<void> _ripMe() async {
-    if (_folderUri == null) {
+    if (_folderPath == null) {
       setState(() => _status = 'Please select folder first');
       return;
     }
@@ -77,15 +78,11 @@ class _HomeScreenState extends State<HomeScreen> {
       "state": "queued"
     };
 
-    await DocumentFileSavePlus.saveFile(
-      utf8.encode(jsonEncode(job)),
-      jobId,
-      "application/json",
-      _folderUri!,
-    );
+    final file = File('$_folderPath/$jobId');
+    await file.writeAsString(jsonEncode(job), flush: true);
 
     setState(() {
-      _status = 'Job created';
+      _status = 'Job created: $jobId';
       _controller.clear();
     });
   }
