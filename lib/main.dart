@@ -23,9 +23,7 @@ class RedTownApp extends StatelessWidget {
   }
 }
 
-/* ===========================
-   HOME SCREEN
-=========================== */
+/* ================= HOME ================= */
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,9 +33,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _controller = TextEditingController();
-  String? _folderPath;
-  String _status = 'Select folder, then RIP ME';
+  final controller = TextEditingController();
+  String? folder;
+  String status = "Select folder, then RIP ME";
 
   @override
   void initState() {
@@ -47,53 +45,44 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadFolder() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _folderPath = prefs.getString('folder_path');
-      if (_folderPath != null) {
-        _status = 'Folder: $_folderPath';
-      }
-    });
+    final saved = prefs.getString("folder_path");
+    if (saved != null) {
+      setState(() {
+        folder = saved;
+        status = "Folder: $saved";
+      });
+    }
   }
 
-  Future<void> _pickFolder() async {
+  Future<void> pickFolder() async {
     final path = await FilePicker.platform.getDirectoryPath();
     if (path == null) return;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('folder_path', path);
+    await prefs.setString("folder_path", path);
 
     setState(() {
-      _folderPath = path;
-      _status = 'Folder selected:\n$path';
+      folder = path;
+      status = "Folder selected:\n$path";
     });
   }
 
-  Future<void> _ripMe() async {
-    if (_folderPath == null) {
-      setState(() => _status = 'Please select folder first');
-      return;
-    }
+  Future<void> ripMe() async {
+    if (folder == null || controller.text.isEmpty) return;
 
-    final input = _controller.text.trim();
-    if (input.isEmpty) return;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final jobId = "job_$ts";
+    final jobFile = File("$folder/$jobId.json");
 
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final jobId = 'job_$timestamp';
-    final jobFileName = '$jobId.json';
-
-    final job = {
+    await jobFile.writeAsString(jsonEncode({
       "job_id": jobId,
-      "target": input,
-      "created_at": DateTime.now().toIso8601String(),
-      "state": "queued"
-    };
-
-    final file = File('$_folderPath/$jobFileName');
-    await file.writeAsString(jsonEncode(job), flush: true);
+      "target": controller.text.trim(),
+      "created_at": DateTime.now().toIso8601String()
+    }));
 
     setState(() {
-      _status = 'Job created: $jobId';
-      _controller.clear();
+      status = "Job created: $jobId";
+      controller.clear();
     });
   }
 
@@ -101,52 +90,46 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('RedTown'),
+        title: const Text("RedTown"),
         actions: [
           IconButton(
             icon: const Icon(Icons.download),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DownloadCenter()),
-              );
-            },
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DownloadCenter()),
+            ),
           )
         ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            ElevatedButton(
-              onPressed: _pickFolder,
-              child: const Text('Select RedTown Folder'),
+        child: Column(children: [
+          ElevatedButton(
+            onPressed: pickFolder,
+            child: const Text("Select RedTown Folder"),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: "Subreddit or Username (e.g. r/pics)",
+              border: OutlineInputBorder(),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _controller,
-              decoration: const InputDecoration(
-                labelText: 'Subreddit or Username (e.g. r/pics)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _ripMe,
-              child: const Text('RIP ME'),
-            ),
-            const SizedBox(height: 20),
-            Text(_status),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: ripMe,
+            child: const Text("RIP ME"),
+          ),
+          const SizedBox(height: 20),
+          Text(status),
+        ]),
       ),
     );
   }
 }
 
-/* ===========================
-   DOWNLOAD CENTER
-=========================== */
+/* =============== DOWNLOAD CENTER =============== */
 
 class DownloadCenter extends StatefulWidget {
   const DownloadCenter({super.key});
@@ -156,14 +139,14 @@ class DownloadCenter extends StatefulWidget {
 }
 
 class _DownloadCenterState extends State<DownloadCenter> {
-  final String basePath = "/storage/emulated/0/Download/RedTown";
   List<Map<String, dynamic>> jobs = [];
   Timer? timer;
+  String? folder;
 
   @override
   void initState() {
     super.initState();
-    _loadJobs();
+    _loadFolderAndJobs();
     timer = Timer.periodic(const Duration(seconds: 2), (_) => _loadJobs());
   }
 
@@ -173,30 +156,48 @@ class _DownloadCenterState extends State<DownloadCenter> {
     super.dispose();
   }
 
+  Future<void> _loadFolderAndJobs() async {
+    final prefs = await SharedPreferences.getInstance();
+    folder = prefs.getString("folder_path");
+    await _loadJobs();
+  }
+
   Future<void> _loadJobs() async {
-    final statusDir = Directory("$basePath/status");
-    if (!await statusDir.exists()) return;
+    if (folder == null) return;
 
-    final files = statusDir.listSync()
-      ..sort((a, b) => b.path.compareTo(a.path));
+    final List<Map<String, dynamic>> list = [];
+    final jobDir = Directory(folder!);
+    final statusDir = Directory("${folder!}/status");
 
-    final List<Map<String, dynamic>> loaded = [];
+    if (await jobDir.exists()) {
+      for (final f in jobDir.listSync()) {
+        if (f.path.endsWith(".json") && !f.path.contains("/status/")) {
+          try {
+            final j = jsonDecode(await File(f.path).readAsString());
+            j["state"] = "queued";
+            list.add(j);
+          } catch (_) {}
+        }
+      }
+    }
 
-    for (final f in files) {
-      if (!f.path.endsWith(".json")) continue;
-      try {
-        final data = jsonDecode(await File(f.path).readAsString());
-        loaded.add(data);
-      } catch (_) {}
+    if (await statusDir.exists()) {
+      for (final f in statusDir.listSync()) {
+        try {
+          final j = jsonDecode(await File(f.path).readAsString());
+          list.removeWhere((e) => e["job_id"] == j["job_id"]);
+          list.add(j);
+        } catch (_) {}
+      }
     }
 
     setState(() {
-      jobs = loaded;
+      jobs = list;
     });
   }
 
-  Color _stateColor(String state) {
-    switch (state) {
+  Color stateColor(String s) {
+    switch (s) {
       case "running":
         return Colors.orange;
       case "completed":
@@ -214,24 +215,20 @@ class _DownloadCenterState extends State<DownloadCenter> {
       appBar: AppBar(title: const Text("Download Center")),
       body: jobs.isEmpty
           ? const Center(child: Text("No jobs yet"))
-          : ListView.builder(
-              itemCount: jobs.length,
-              itemBuilder: (_, i) {
-                final j = jobs[i];
-                return Card(
-                  child: ListTile(
-                    title: Text(j["target"] ?? "Unknown"),
-                    subtitle: Text(j["job_id"] ?? ""),
-                    trailing: Text(
-                      j["state"] ?? "",
-                      style: TextStyle(
-                        color: _stateColor(j["state"] ?? ""),
-                        fontWeight: FontWeight.bold,
-                      ),
+          : ListView(
+              children: jobs.map((j) => Card(
+                child: ListTile(
+                  title: Text(j["target"] ?? ""),
+                  subtitle: Text(j["job_id"] ?? ""),
+                  trailing: Text(
+                    j["state"] ?? "",
+                    style: TextStyle(
+                      color: stateColor(j["state"] ?? ""),
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                );
-              },
+                ),
+              )).toList(),
             ),
     );
   }
