@@ -77,20 +77,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final input = _controller.text.trim();
     if (input.isEmpty) return;
 
-    final jobId = 'job_${DateTime.now().millisecondsSinceEpoch}.json';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final jobId = 'job_$timestamp';
+    final jobFileName = '$jobId.json';
 
     final job = {
-      "job_id": jobId.replace(".json", ""),
+      "job_id": jobId,
       "target": input,
       "created_at": DateTime.now().toIso8601String(),
       "state": "queued"
     };
 
-    final file = File('$_folderPath/$jobId');
+    final file = File('$_folderPath/$jobFileName');
     await file.writeAsString(jsonEncode(job), flush: true);
 
     setState(() {
-      _status = 'Job created: ${job["job_id"]}';
+      _status = 'Job created: $jobId';
       _controller.clear();
     });
   }
@@ -219,11 +221,11 @@ class _DownloadCenterState extends State<DownloadCenter> {
                 return Card(
                   child: ListTile(
                     title: Text(j["target"] ?? "Unknown"),
-                    subtitle: Text(j["job_id"]),
+                    subtitle: Text(j["job_id"] ?? ""),
                     trailing: Text(
-                      j["state"],
+                      j["state"] ?? "",
                       style: TextStyle(
-                        color: _stateColor(j["state"]),
+                        color: _stateColor(j["state"] ?? ""),
                         fontWeight: FontWeight.bold,
                       ),
                     ),
