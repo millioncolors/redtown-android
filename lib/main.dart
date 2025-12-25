@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -16,6 +17,7 @@ class RedTownApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'RedTown',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(useMaterial3: true),
       home: const HomeScreen(),
     );
@@ -47,6 +49,13 @@ class _HomeScreenState extends State<HomeScreen> {
   String? baseDir;
   final TextEditingController controller = TextEditingController();
   List<JobInfo> jobs = [];
+  Timer? refreshTimer;
+
+  @override
+  void dispose() {
+    refreshTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,25 +64,36 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ElevatedButton(
               onPressed: pickFolder,
-              child: Text(baseDir == null ? "Choose Folder" : baseDir!),
+              child: Text(baseDir == null
+                  ? "Choose RedTown Folder"
+                  : "Folder: ${p.basename(baseDir!)}"),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: controller,
               decoration: const InputDecoration(
-                hintText: "Enter subreddit (e.g. r/pics)",
+                labelText: "Subreddit",
+                hintText: "e.g. r/pics",
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: baseDir == null ? null : createJob,
-              child: const Text("Rip Me"),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: baseDir == null ? null : createJob,
+                child: const Text("Rip Me"),
+              ),
             ),
             const SizedBox(height: 24),
-            const Text("Download Center", style: TextStyle(fontSize: 18)),
+            const Text(
+              "Download Center",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
             Expanded(child: buildJobList()),
           ],
@@ -92,6 +112,21 @@ class _HomeScreenState extends State<HomeScreen> {
       itemBuilder: (context, index) {
         final job = jobs[index];
 
+        Color color;
+        switch (job.state) {
+          case "running":
+            color = Colors.orange;
+            break;
+          case "completed":
+            color = Colors.green;
+            break;
+          case "failed":
+            color = Colors.red;
+            break;
+          default:
+            color = Colors.grey;
+        }
+
         return Card(
           child: ListTile(
             title: Text(job.target),
@@ -99,6 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
             trailing: job.stats != null
                 ? Text("${job.stats!['files_downloaded']} files")
                 : null,
+            leading: Icon(Icons.circle, color: color, size: 12),
           ),
         );
       },
@@ -113,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
       baseDir = result;
     });
 
-    refreshJobs();
+    startPolling();
   }
 
   Future<void> createJob() async {
@@ -130,7 +166,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }));
 
     controller.clear();
+  }
+
+  void startPolling() {
+    refreshTimer?.cancel();
     refreshJobs();
+    refreshTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => refreshJobs(),
+    );
   }
 
   Future<void> refreshJobs() async {
@@ -138,6 +182,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final jobsDir = Directory(baseDir!);
     final statusDir = Directory(p.join(baseDir!, "status"));
+
+    if (!await statusDir.exists()) {
+      return;
+    }
 
     final jobFiles = jobsDir
         .listSync()
@@ -171,8 +219,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    loaded.sort((a, b) => b.jobId.compareTo(a.jobId));
+
     setState(() {
-      jobs = loaded.reversed.toList();
+      jobs = loaded;
     });
   }
 }
