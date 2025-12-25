@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   runApp(const RedTownApp());
@@ -16,14 +15,26 @@ class RedTownApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(),
+      title: 'RedTown',
+      theme: ThemeData.dark(useMaterial3: true),
       home: const HomeScreen(),
     );
   }
 }
 
-/* ================= HOME ================= */
+class JobInfo {
+  final String jobId;
+  final String target;
+  final String state;
+  final Map<String, dynamic>? stats;
+
+  JobInfo({
+    required this.jobId,
+    required this.target,
+    required this.state,
+    this.stats,
+  });
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,203 +44,135 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final controller = TextEditingController();
-  String? folder;
-  String status = "Select folder, then RIP ME";
+  String? baseDir;
+  final TextEditingController controller = TextEditingController();
+  List<JobInfo> jobs = [];
 
   @override
-  void initState() {
-    super.initState();
-    _loadFolder();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("RedTown")),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            ElevatedButton(
+              onPressed: pickFolder,
+              child: Text(baseDir == null ? "Choose Folder" : baseDir!),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: "Enter subreddit (e.g. r/pics)",
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: baseDir == null ? null : createJob,
+              child: const Text("Rip Me"),
+            ),
+            const SizedBox(height: 24),
+            const Text("Download Center", style: TextStyle(fontSize: 18)),
+            const SizedBox(height: 12),
+            Expanded(child: buildJobList()),
+          ],
+        ),
+      ),
+    );
   }
 
-  Future<void> _loadFolder() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString("folder_path");
-    if (saved != null) {
-      setState(() {
-        folder = saved;
-        status = "Folder: $saved";
-      });
+  Widget buildJobList() {
+    if (jobs.isEmpty) {
+      return const Center(child: Text("No jobs yet"));
     }
+
+    return ListView.builder(
+      itemCount: jobs.length,
+      itemBuilder: (context, index) {
+        final job = jobs[index];
+
+        return Card(
+          child: ListTile(
+            title: Text(job.target),
+            subtitle: Text(job.state),
+            trailing: job.stats != null
+                ? Text("${job.stats!['files_downloaded']} files")
+                : null,
+          ),
+        );
+      },
+    );
   }
 
   Future<void> pickFolder() async {
-    final path = await FilePicker.platform.getDirectoryPath();
-    if (path == null) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("folder_path", path);
+    final result = await FilePicker.platform.getDirectoryPath();
+    if (result == null) return;
 
     setState(() {
-      folder = path;
-      status = "Folder selected:\n$path";
+      baseDir = result;
     });
+
+    refreshJobs();
   }
 
-  Future<void> ripMe() async {
-    if (folder == null || controller.text.isEmpty) return;
+  Future<void> createJob() async {
+    final target = controller.text.trim();
+    if (target.isEmpty || baseDir == null) return;
 
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final jobId = "job_$ts";
-    final jobFile = File("$folder/$jobId.json");
+    final jobId = "job_${DateTime.now().millisecondsSinceEpoch}";
+    final jobFile = File(p.join(baseDir!, "$jobId.json"));
 
     await jobFile.writeAsString(jsonEncode({
       "job_id": jobId,
-      "target": controller.text.trim(),
-      "created_at": DateTime.now().toIso8601String()
+      "target": target,
+      "created_at": DateTime.now().toIso8601String(),
     }));
 
-    setState(() {
-      status = "Job created: $jobId";
-      controller.clear();
-    });
+    controller.clear();
+    refreshJobs();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("RedTown"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const DownloadCenter()),
-            ),
-          )
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(children: [
-          ElevatedButton(
-            onPressed: pickFolder,
-            child: const Text("Select RedTown Folder"),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              labelText: "Subreddit or Username (e.g. r/pics)",
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: ripMe,
-            child: const Text("RIP ME"),
-          ),
-          const SizedBox(height: 20),
-          Text(status),
-        ]),
-      ),
-    );
-  }
-}
+  Future<void> refreshJobs() async {
+    if (baseDir == null) return;
 
-/* =============== DOWNLOAD CENTER =============== */
+    final jobsDir = Directory(baseDir!);
+    final statusDir = Directory(p.join(baseDir!, "status"));
 
-class DownloadCenter extends StatefulWidget {
-  const DownloadCenter({super.key});
+    final jobFiles = jobsDir
+        .listSync()
+        .whereType<File>()
+        .where((f) => p.basename(f.path).startsWith("job_"))
+        .toList();
 
-  @override
-  State<DownloadCenter> createState() => _DownloadCenterState();
-}
+    List<JobInfo> loaded = [];
 
-class _DownloadCenterState extends State<DownloadCenter> {
-  List<Map<String, dynamic>> jobs = [];
-  Timer? timer;
-  String? folder;
+    for (final jobFile in jobFiles) {
+      final jobData = jsonDecode(await jobFile.readAsString());
+      final jobId = jobData["job_id"];
+      final target = jobData["target"];
 
-  @override
-  void initState() {
-    super.initState();
-    _loadFolderAndJobs();
-    timer = Timer.periodic(const Duration(seconds: 2), (_) => _loadJobs());
-  }
+      final statusFile = File(p.join(statusDir.path, "$jobId.json"));
 
-  @override
-  void dispose() {
-    timer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _loadFolderAndJobs() async {
-    final prefs = await SharedPreferences.getInstance();
-    folder = prefs.getString("folder_path");
-    await _loadJobs();
-  }
-
-  Future<void> _loadJobs() async {
-    if (folder == null) return;
-
-    final List<Map<String, dynamic>> list = [];
-    final jobDir = Directory(folder!);
-    final statusDir = Directory("${folder!}/status");
-
-    if (await jobDir.exists()) {
-      for (final f in jobDir.listSync()) {
-        if (f.path.endsWith(".json") && !f.path.contains("/status/")) {
-          try {
-            final j = jsonDecode(await File(f.path).readAsString());
-            j["state"] = "queued";
-            list.add(j);
-          } catch (_) {}
-        }
-      }
-    }
-
-    if (await statusDir.exists()) {
-      for (final f in statusDir.listSync()) {
-        try {
-          final j = jsonDecode(await File(f.path).readAsString());
-          list.removeWhere((e) => e["job_id"] == j["job_id"]);
-          list.add(j);
-        } catch (_) {}
+      if (await statusFile.exists()) {
+        final statusData = jsonDecode(await statusFile.readAsString());
+        loaded.add(JobInfo(
+          jobId: jobId,
+          target: target,
+          state: statusData["state"],
+          stats: statusData["stats"],
+        ));
+      } else {
+        loaded.add(JobInfo(
+          jobId: jobId,
+          target: target,
+          state: "queued",
+        ));
       }
     }
 
     setState(() {
-      jobs = list;
+      jobs = loaded.reversed.toList();
     });
-  }
-
-  Color stateColor(String s) {
-    switch (s) {
-      case "running":
-        return Colors.orange;
-      case "completed":
-        return Colors.green;
-      case "failed":
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Download Center")),
-      body: jobs.isEmpty
-          ? const Center(child: Text("No jobs yet"))
-          : ListView(
-              children: jobs.map((j) => Card(
-                child: ListTile(
-                  title: Text(j["target"] ?? ""),
-                  subtitle: Text(j["job_id"] ?? ""),
-                  trailing: Text(
-                    j["state"] ?? "",
-                    style: TextStyle(
-                      color: stateColor(j["state"] ?? ""),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              )).toList(),
-            ),
-    );
   }
 }
