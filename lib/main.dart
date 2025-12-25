@@ -44,6 +44,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _folderPath = prefs.getString('folder_path');
+      if (_folderPath != null) {
+        _status = 'Folder: $_folderPath';
+      }
     });
   }
 
@@ -56,7 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _folderPath = path;
-      _status = 'Folder selected';
+      _status = 'Folder selected:\n$path';
     });
   }
 
@@ -82,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await file.writeAsString(jsonEncode(job), flush: true);
 
     setState(() {
-      _status = 'Job created: $jobId';
+      _status = 'Job created:\n$jobId\n\nPath:\n$_folderPath';
       _controller.clear();
     });
   }
@@ -94,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ElevatedButton(
               onPressed: _pickFolder,
